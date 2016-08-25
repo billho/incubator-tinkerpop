@@ -124,9 +124,34 @@ public class GremlinDriverIntegrateTest extends AbstractGremlinServerIntegration
                 deleteDirectory(new File("/tmp/neo4j"));
                 settings.graphs.put("graph", "conf/neo4j-empty.properties");
                 break;
+            case "shouldProcessSessionRequestsInOrderAfterTimeout":
+                settings.scriptEvaluationTimeout = 250;
+                settings.threadPoolWorker = 1;
+                break;
         }
 
         return settings;
+    }
+
+    @Test
+    public void shouldEventuallySucceedAfterChannelLevelError() throws Exception {
+        final Cluster cluster = Cluster.build().addContactPoint("localhost")
+                .reconnectIntialDelay(500)
+                .reconnectInterval(500)
+                .maxContentLength(1024).create();
+        final Client client = cluster.connect();
+
+        try {
+            client.submit("def x = '';(0..<1024).each{x = x + '$it'};x").all().get();
+            fail("Request should have failed because it exceeded the max content length allowed");
+        } catch (Exception ex) {
+            final Throwable root = ExceptionUtils.getRootCause(ex);
+            assertThat(root.getMessage(), containsString("Max frame length of 1024 has been exceeded."));
+        }
+
+        assertEquals(2, client.submit("1+1").all().join().get(0).getInt());
+
+        cluster.close();
     }
 
     @Test
@@ -948,7 +973,11 @@ public class GremlinDriverIntegrateTest extends AbstractGremlinServerIntegration
 
     @Test
     public void shouldBeThreadSafeToUseOneClient() throws Exception {
-        final Cluster cluster = Cluster.build().create();
+        final Cluster cluster = Cluster.build().workerPoolSize(2)
+                .maxInProcessPerConnection(64)
+                .minInProcessPerConnection(32)
+                .maxConnectionPoolSize(16)
+                .minConnectionPoolSize(8).create();
         final Client client = cluster.connect();
 
         final Map<Integer, Integer> results = new ConcurrentHashMap<>();
@@ -970,8 +999,11 @@ public class GremlinDriverIntegrateTest extends AbstractGremlinServerIntegration
         threads.forEach(FunctionUtils.wrapConsumer(Thread::join));
 
         for (int ix = 0; ix < results.size(); ix++) {
+            assertThat(results.containsKey(ix), is(true));
             assertEquals(1000 + ix, results.get(ix).intValue());
         }
+
+        cluster.close();
     }
 
     @Test
@@ -980,7 +1012,7 @@ public class GremlinDriverIntegrateTest extends AbstractGremlinServerIntegration
         final Client client = cluster.connect();
 
         try {
-            client.submit("1+1").all().get().get(0).getVertex();
+            client.submit("1+1").all().get();
             fail("Should have tossed an exception because strict mode is on and no aliasing was performed");
         } catch (Exception ex) {
             final Throwable root = ExceptionUtils.getRootCause(ex);
@@ -1171,5 +1203,62 @@ public class GremlinDriverIntegrateTest extends AbstractGremlinServerIntegration
         assertThat(sessionWithoutManagedTx.submit("g.V().has('name','daniel').hasNext()").all().get().get(0).getBoolean(), is(true));
 
         cluster.close();
+    }
+
+    @Test
+    public void shouldProcessSessionRequestsInOrderAfterTimeout() throws Exception {
+        final Cluster cluster = Cluster.open();
+        final Client client = cluster.connect(name.getMethodName());
+
+        for(int index = 0; index < 50; index++)
+        {
+            final CompletableFuture<ResultSet> first = client.submitAsync(
+                    "Object mon1 = 'mon1';\n" +
+                            "synchronized (mon1) {\n" +
+                            "    mon1.wait();\n" +
+                            "} ");
+
+            final CompletableFuture<ResultSet> second = client.submitAsync(
+                    "Object mon2 = 'mon2';\n" +
+                            "synchronized (mon2) {\n" +
+                            "    mon2.wait();\n" +
+                            "}");
+
+            final CompletableFuture<ResultSet> third = client.submitAsync(
+                    "Object mon3 = 'mon3';\n" +
+                            "synchronized (mon3) {\n" +
+                            "    mon3.wait();\n" +
+                            "}");
+
+            final CompletableFuture<ResultSet> fourth = client.submitAsync(
+                    "Object mon4 = 'mon4';\n" +
+                            "synchronized (mon4) {\n" +
+                            "    mon4.wait();\n" +
+                            "}");
+
+            final CompletableFuture<List<Result>> futureFirst = first.get().all();
+            final CompletableFuture<List<Result>> futureSecond = second.get().all();
+            final CompletableFuture<List<Result>> futureThird = third.get().all();
+            final CompletableFuture<List<Result>> futureFourth = fourth.get().all();
+
+            assertFutureTimeout(futureFirst);
+            assertFutureTimeout(futureSecond);
+            assertFutureTimeout(futureThird);
+            assertFutureTimeout(futureFourth);
+        }
+    }
+
+    private void assertFutureTimeout(final CompletableFuture<List<Result>> futureFirst) {
+        try
+        {
+            futureFirst.get();
+            fail("Should have timed out");
+        }
+        catch (Exception ex)
+        {
+            final Throwable root = ExceptionUtils.getRootCause(ex);
+            assertThat(root, instanceOf(ResponseException.class));
+            assertThat(root.getMessage(), startsWith("Script evaluation exceeded the configured 'scriptEvaluationTimeout' threshold of 250 ms for request"));
+        }
     }
 }

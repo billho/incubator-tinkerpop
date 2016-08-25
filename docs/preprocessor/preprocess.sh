@@ -19,36 +19,42 @@
 # under the License.
 #
 
+DRYRUN_DOCS="$1"
+FULLRUN_DOCS="$2"
+
 pushd "$(dirname $0)/../.." > /dev/null
 
-if [ ! -f bin/gremlin.sh ]; then
-  echo "Gremlin REPL is not available. Cannot preprocess AsciiDoc files."
-  popd > /dev/null
-  exit 1
-fi
+if [ "${DRYRUN_DOCS}" != "*" ]; then
 
-for daemon in "NameNode" "DataNode" "ResourceManager" "NodeManager"
-do
-  running=`jps | cut -d ' ' -f2 | grep -c ${daemon}`
-  if [ ${running} -eq 0 ]; then
-    echo "Hadoop is not running, be sure to start it before processing the docs."
+  if [ ! -f bin/gremlin.sh ]; then
+    echo "Gremlin REPL is not available. Cannot preprocess AsciiDoc files."
+    popd > /dev/null
     exit 1
   fi
-done
 
-netstat -an | awk '{print $4}' | grep -o '[0-9]*$' | grep 8182 > /dev/null && {
-  echo "The port 8182 is required for Gremlin Server, but already in use. Be sure to close the application that currently uses the port before processing the docs."
-  exit 1
-}
+  for daemon in "NameNode" "DataNode" "ResourceManager" "NodeManager"
+  do
+    running=`jps | cut -d ' ' -f2 | grep -c ${daemon}`
+    if [ ${running} -eq 0 ]; then
+      echo "Hadoop is not running, be sure to start it before processing the docs."
+      exit 1
+    fi
+  done
 
-if [ -e /tmp/neo4j ]; then
-  echo "The directory '/tmp/neo4j' is required by the pre-processor, be sure to delete it before processing the docs."
-  exit 1
-fi
+  netstat -an | awk '{print $4}' | grep -o '[0-9]*$' | grep 8182 > /dev/null && {
+    echo "The port 8182 is required for Gremlin Server, but already in use. Be sure to close the application that currently uses the port before processing the docs."
+    exit 1
+  }
 
-if [ -e /tmp/tinkergraph.kryo ]; then
-  echo "The file '/tmp/tinkergraph.kryo' is required by the pre-processor, be sure to delete it before processing the docs."
-  exit 1
+  if [ -e /tmp/neo4j ]; then
+    echo "The directory '/tmp/neo4j' is required by the pre-processor, be sure to delete it before processing the docs."
+    exit 1
+  fi
+
+  if [ -e /tmp/tinkergraph.kryo ]; then
+    echo "The file '/tmp/tinkergraph.kryo' is required by the pre-processor, be sure to delete it before processing the docs."
+    exit 1
+  fi
 fi
 
 function directory {
@@ -63,18 +69,17 @@ mkdir -p target/postprocess-asciidoc/tmp
 cp -R docs/{static,stylesheets} target/postprocess-asciidoc/
 
 TP_HOME=`pwd`
-CONSOLE_HOME=`directory "${TP_HOME}/gremlin-console/target/apache-gremlin-console-*-standalone"`
+CONSOLE_HOME=`directory "${TP_HOME}/gremlin-console/target/apache-tinkerpop-gremlin-console-*-standalone"`
 PLUGIN_DIR="${CONSOLE_HOME}/ext"
 TP_VERSION=$(cat pom.xml | grep -A1 '<artifactId>tinkerpop</artifactId>' | grep -o 'version>[^<]*' | grep -o '>.*' | cut -d '>' -f2 | head -n1)
 TMP_DIR="/tmp/tp-docs-preprocessor"
 
 mkdir -p "${TMP_DIR}"
 
-HISTORY_FILE=`find . -name Console.groovy | xargs grep HISTORY_FILE | head -n1 | cut -d '=' -f2 | xargs echo`
-[ ${HISTORY_FILE} ] || HISTORY_FILE=".gremlin_groovy_history"
+HISTORY_FILE=".gremlin_groovy_history"
 [ -f ~/${HISTORY_FILE} ] && cp ~/${HISTORY_FILE} ${TMP_DIR}
 
-pushd gremlin-server/target/apache-gremlin-server-*-standalone > /dev/null
+pushd gremlin-server/target/apache-tinkerpop-gremlin-server-*-standalone > /dev/null
 bin/gremlin-server.sh conf/gremlin-server-modern.yaml > /dev/null 2> /dev/null &
 GREMLIN_SERVER_PID=$!
 popd > /dev/null
@@ -92,19 +97,23 @@ function cleanup() {
 
 trap cleanup EXIT
 
-# install plugins
-echo
-echo "=========================="
-echo "+   Installing Plugins   +"
-echo "=========================="
-echo
-cp ${CONSOLE_HOME}/ext/plugins.txt ${TMP_DIR}/plugins.txt.orig
-docs/preprocessor/install-plugins.sh "${CONSOLE_HOME}" "${TP_VERSION}" "${TMP_DIR}"
+if [ "${DRYRUN_DOCS}" != "*" ] || [ ! -z "${FULLRUN_DOCS}" ]; then
 
-if [ $? -ne 0 ]; then
-  exit 1
-else
+  # install plugins
   echo
+  echo "=========================="
+  echo "+   Installing Plugins   +"
+  echo "=========================="
+  echo
+  cp ${CONSOLE_HOME}/ext/plugins.txt ${TMP_DIR}/plugins.txt.orig
+  docs/preprocessor/install-plugins.sh "${CONSOLE_HOME}" "${TP_VERSION}" "${TMP_DIR}"
+
+  if [ $? -ne 0 ]; then
+    exit 1
+  else
+    echo
+  fi
+
 fi
 
 # process *.asciidoc files
@@ -119,33 +128,27 @@ echo "+   Processing AsciiDocs   +"
 echo "============================"
 
 ec=0
-process_subdirs=1
-find "${TP_HOME}/docs/src/" -name index.asciidoc | xargs -n1 dirname | while read subdir ; do
-  if [ ${process_subdirs} -eq 1 ]; then
-    find "${subdir}" -name "*.asciidoc" |
-         xargs -n1 basename |
-         xargs -n1 -I {} echo "echo -ne {}' '; (grep -n {} ${subdir}/index.asciidoc || echo 0) | head -n1 | cut -d ':' -f1" | /bin/bash | sort -nk2 | cut -d ' ' -f1 |
-         xargs -n1 -I {} echo "${subdir}/{}" |
-         xargs -n1 ${TP_HOME}/docs/preprocessor/preprocess-file.sh "${CONSOLE_HOME}"
+for subdir in $(find "${TP_HOME}/docs/src/" -name index.asciidoc | xargs -n1 dirname)
+do
+  find "${subdir}" -name "*.asciidoc" |
+       xargs -n1 basename |
+       xargs -n1 -I {} echo "echo -ne {}' '; (grep -n {} ${subdir}/index.asciidoc || echo 0) | head -n1 | cut -d ':' -f1" | /bin/bash | sort -nk2 | cut -d ' ' -f1 |
+       xargs -n1 -I {} echo "${subdir}/{}" |
+       xargs -n1 ${TP_HOME}/docs/preprocessor/preprocess-file.sh "${CONSOLE_HOME}" "${DRYRUN_DOCS}" "${FULLRUN_DOCS}"
 
-    ps=(${PIPESTATUS[@]})
-    for i in {0..7}; do
-      ec=${ps[i]}
-      [ ${ec} -eq 0 ] || break
-    done
-
-    if [ ${ec} -ne 0 ]; then
-      process_subdirs=0
-    fi
-  fi
+  ps=(${PIPESTATUS[@]})
+  for i in {0..7}; do
+    ec=${ps[i]}
+    [ ${ec} -eq 0 ] || break
+  done
+  [ ${ec} -eq 0 ] || break
 done
 
 tput smam
 [[ "${COLUMNS}" != "" ]] && stty cols ${COLS}
 
-if [ ${ec} -ne 0 ]; then
-  exit 1
-else
-  rm -rf /tmp/neo4j /tmp/tinkergraph.kryo
-  echo
-fi
+rm -rf /tmp/neo4j /tmp/tinkergraph.kryo
+
+[ ${ec} -eq 0 ] || exit 1
+
+echo

@@ -21,6 +21,7 @@ package org.apache.tinkerpop.gremlin.console.groovy.plugin;
 import org.apache.tinkerpop.gremlin.driver.Client;
 import org.apache.tinkerpop.gremlin.driver.Cluster;
 import org.apache.tinkerpop.gremlin.driver.Result;
+import org.apache.tinkerpop.gremlin.driver.ResultSet;
 import org.apache.tinkerpop.gremlin.driver.exception.ResponseException;
 import org.apache.tinkerpop.gremlin.driver.message.ResponseStatusCode;
 import org.apache.tinkerpop.gremlin.groovy.plugin.RemoteAcceptor;
@@ -28,7 +29,6 @@ import org.apache.tinkerpop.gremlin.groovy.plugin.RemoteException;
 import org.apache.commons.lang.exception.ExceptionUtils;
 import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
 import org.codehaus.groovy.tools.shell.Groovysh;
-import org.codehaus.groovy.tools.shell.Parser;
 
 import javax.security.sasl.SaslException;
 import java.io.FileNotFoundException;
@@ -52,18 +52,27 @@ import java.util.stream.Stream;
  * @author Marko A. Rodriguez (http://markorodriguez.com)
  */
 public class DriverRemoteAcceptor implements RemoteAcceptor {
+    public static final int NO_TIMEOUT = 0;
+
     private Cluster currentCluster;
     private Client currentClient;
-    private int timeout = 180000;
+    private int timeout = NO_TIMEOUT;
     private Map<String,String> aliases = new HashMap<>();
     private Optional<String> session = Optional.empty();
 
     private static final String TOKEN_RESET = "reset";
     private static final String TOKEN_SHOW = "show";
+
+    /**
+     * @deprecated As of 3.1.3, replaced by "none" option
+     */
+    @Deprecated
     private static final String TOKEN_MAX = "max";
+    private static final String TOKEN_NONE = "none";
     private static final String TOKEN_TIMEOUT = "timeout";
     private static final String TOKEN_ALIAS = "alias";
     private static final String TOKEN_SESSION = "session";
+    private static final String TOKEN_SESSION_MANAGED = "session-managed";
     private static final List<String> POSSIBLE_TOKENS = Arrays.asList(TOKEN_TIMEOUT, TOKEN_ALIAS);
 
     private final Groovysh shell;
@@ -78,16 +87,19 @@ public class DriverRemoteAcceptor implements RemoteAcceptor {
 
         try {
             this.currentCluster = Cluster.open(args.get(0));
-            final boolean useSession = args.size() >= 2 && args.get(1).equals(TOKEN_SESSION);
+            final boolean useSession = args.size() >= 2 && (args.get(1).equals(TOKEN_SESSION) || args.get(1).equals(TOKEN_SESSION_MANAGED));
             if (useSession) {
                 final String sessionName = args.size() == 3 ? args.get(2) : UUID.randomUUID().toString();
                 session = Optional.of(sessionName);
-                this.currentClient = this.currentCluster.connect(sessionName);
+
+                final boolean managed = args.get(1).equals(TOKEN_SESSION_MANAGED);
+
+                this.currentClient = this.currentCluster.connect(sessionName, managed);
             } else {
                 this.currentClient = this.currentCluster.connect();
             }
             this.currentClient.init();
-            return String.format("Connected - %s", this.currentCluster) + getSessionStringSegment();
+            return String.format("Configured %s", this.currentCluster) + getSessionStringSegment();
         } catch (final FileNotFoundException ignored) {
             throw new RemoteException("The 'connect' option must be accompanied by a valid configuration file");
         } catch (final Exception ex) {
@@ -104,13 +116,15 @@ public class DriverRemoteAcceptor implements RemoteAcceptor {
         final List<String> arguments = args.subList(1, args.size());
 
         if (option.equals(TOKEN_TIMEOUT)) {
-            final String errorMessage = "The timeout option expects a positive integer representing milliseconds or 'max' as an argument";
+            final String errorMessage = "The timeout option expects a positive integer representing milliseconds or 'none' as an argument";
             if (arguments.size() != 1) throw new RemoteException(errorMessage);
             try {
-                final int to = arguments.get(0).equals(TOKEN_MAX) ? Integer.MAX_VALUE : Integer.parseInt(arguments.get(0));
-                if (to <= 0) throw new RemoteException(errorMessage);
-                this.timeout = to;
-                return "Set remote timeout to " + to + "ms";
+                // first check for MAX timeout then NONE and finally parse the config to int. "max" is now "deprecated"
+                // in the sense that it will no longer be promoted. support for it will be removed at a later date
+                timeout = arguments.get(0).equals(TOKEN_MAX) ? Integer.MAX_VALUE :
+                        arguments.get(0).equals(TOKEN_NONE) ? NO_TIMEOUT : Integer.parseInt(arguments.get(0));
+                if (timeout < NO_TIMEOUT) throw new RemoteException("The value for the timeout cannot be less than " + NO_TIMEOUT);
+                return timeout == NO_TIMEOUT ? "Remote timeout is disabled" : "Set remote timeout to " + timeout + "ms";
             } catch (Exception ignored) {
                 throw new RemoteException(errorMessage);
             }
@@ -171,10 +185,14 @@ public class DriverRemoteAcceptor implements RemoteAcceptor {
         if (this.currentCluster != null) this.currentCluster.close();
     }
 
+    public int getTimeout() {
+        return timeout;
+    }
+
     private List<Result> send(final String gremlin) throws SaslException {
         try {
-            return this.currentClient.submitAsync(gremlin, aliases, Collections.emptyMap()).get()
-                    .all().get(this.timeout, TimeUnit.MILLISECONDS);
+            final ResultSet rs = this.currentClient.submitAsync(gremlin, aliases, Collections.emptyMap()).get();
+            return timeout > NO_TIMEOUT ? rs.all().get(timeout, TimeUnit.MILLISECONDS) : rs.all().get();
         } catch(TimeoutException ignored) {
             throw new IllegalStateException("Request timed out while processing - increase the timeout with the :remote command");
         } catch (Exception e) {

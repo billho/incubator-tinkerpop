@@ -18,6 +18,7 @@
  */
 package org.apache.tinkerpop.gremlin.server;
 
+import io.netty.handler.ssl.SslContext;
 import org.apache.tinkerpop.gremlin.driver.MessageSerializer;
 import org.apache.tinkerpop.gremlin.driver.ser.GryoMessageSerializerV1d0;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalSource;
@@ -53,15 +54,9 @@ import java.util.UUID;
 public class Settings {
 
     public Settings() {
-        // setup some sensible defaults like gremlin-groovy and gryo serialization
+        // setup some sensible defaults like gremlin-groovy
         scriptEngines = new HashMap<>();
         scriptEngines.put("gremlin-groovy", new ScriptEngineSettings());
-
-        serializers = new ArrayList<>();
-        final SerializerSettings gryoSerializerSettings = new SerializerSettings();
-        gryoSerializerSettings.className = GryoMessageSerializerV1d0.class.getName();
-        gryoSerializerSettings.config = Collections.emptyMap();
-        serializers.add(gryoSerializerSettings);
     }
 
     /**
@@ -87,10 +82,10 @@ public class Settings {
 
     /**
      * Size of the Gremlin thread pool. This pool handles Gremlin script execution and other related "long-run"
-     * processing.  This setting should be sufficiently large to ensure that requests processed by the non-blocking
-     * worker threads are processed with limited queuing.  Defaults to 8.
+     * processing. Defaults to a setting of 0 which indicates the value should be set to
+     * {@code Runtime#availableProcessors()}.
      */
-    public int gremlinPool = 8;
+    public int gremlinPool = 0;
 
     /**
      * Size of the boss thread pool.  Defaults to 1 and should likely stay at 1.  The bossy thread accepts incoming
@@ -106,9 +101,12 @@ public class Settings {
 
     /**
      * Time in milliseconds to wait while an evaluated script serializes its results. This value represents the
-     * total serialization time for the request.  Defaults to 30000.
+     * total serialization time allowed for the request.  Defaults to 0 which disables this setting.
+     *
+     * @deprecated As of release 3.2.1, replaced wholly by {@link #scriptEvaluationTimeout}.
      */
-    public long serializedResponseTimeout = 30000L;
+    @Deprecated
+    public long serializedResponseTimeout = 0L;
 
     /**
      * Number of items in a particular resultset to iterate and serialize prior to pushing the data down the wire
@@ -191,9 +189,10 @@ public class Settings {
     public Map<String, ScriptEngineSettings> scriptEngines;
 
     /**
-     * List of {@link MessageSerializer} to configure.
+     * List of {@link MessageSerializer} to configure. If no serializers are specified then default serializers for
+     * the most current versions of "application/json" and "application/vnd.gremlin-v1.0+gryo" are applied.
      */
-    public List<SerializerSettings> serializers;
+    public List<SerializerSettings> serializers = Collections.emptyList();
 
     /**
      * Configures settings for SSL.
@@ -344,6 +343,14 @@ public class Settings {
      * Settings for the {@link MessageSerializer} implementations.
      */
     public static class SerializerSettings {
+
+        public SerializerSettings() {}
+
+        SerializerSettings(final String className, final Map<String, Object> config) {
+            this.className = className;
+            this.config = config;
+        }
+
         /**
          * The fully qualified class name of the {@link MessageSerializer} implementation. This class name will be
          * used to load the implementation from the classpath.
@@ -406,6 +413,21 @@ public class Settings {
          * contain an X.509 certificate chain in PEM format. {@code null} uses the system default.
          */
         public String trustCertChainFile = null;
+
+        private SslContext sslContext;
+
+        /**
+         * When this value is set, the other settings for SSL are ignored. This option provides for a programmatic
+         * way to configure more complex SSL configurations. The {@link #enabled} setting should still be set to
+         * {@code true} for this setting to take effect.
+         */
+        public void overrideSslContext(final SslContext sslContext) {
+            this.sslContext = sslContext;
+        }
+
+        public Optional<SslContext> getSslContext() {
+            return Optional.ofNullable(sslContext);
+        }
     }
 
     /**

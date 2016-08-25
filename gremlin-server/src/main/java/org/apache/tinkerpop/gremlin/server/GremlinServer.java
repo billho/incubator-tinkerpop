@@ -80,7 +80,9 @@ public class GremlinServer {
      * Construct a Gremlin Server instance from {@link Settings}.
      */
     public GremlinServer(final Settings settings) {
+        settings.optionalMetrics().ifPresent(GremlinServer::configureMetrics);
         this.settings = settings;
+        provideDefaultForGremlinPoolSize(settings);
         this.isEpollEnabled = settings.useEpollEventLoop && SystemUtils.IS_OS_LINUX;
         if(settings.useEpollEventLoop && !SystemUtils.IS_OS_LINUX){
             logger.warn("cannot use epoll in non-linux env, falling back to NIO");
@@ -160,8 +162,8 @@ public class GremlinServer {
 
             // when high value is reached then the channel becomes non-writable and stays like that until the
             // low value is so that there is time to recover
-            b.childOption(ChannelOption.WRITE_BUFFER_LOW_WATER_MARK, settings.writeBufferLowWaterMark);
             b.childOption(ChannelOption.WRITE_BUFFER_HIGH_WATER_MARK, settings.writeBufferHighWaterMark);
+            b.childOption(ChannelOption.WRITE_BUFFER_LOW_WATER_MARK, settings.writeBufferLowWaterMark);
             b.childOption(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT);
 
             // fire off any lifecycle scripts that were provided by the user. hooks get initialized during
@@ -341,7 +343,6 @@ public class GremlinServer {
         }
 
         logger.info("Configuring Gremlin Server from {}", file);
-        settings.optionalMetrics().ifPresent(GremlinServer::configureMetrics);
         final GremlinServer server = new GremlinServer(settings);
         server.start().exceptionally(t -> {
             logger.error("Gremlin Server was unable to start and will now begin shutdown: {}", t.getMessage());
@@ -395,5 +396,10 @@ public class GremlinServer {
 
     private static void printHeader() {
         logger.info(getHeader());
+    }
+
+    private static void provideDefaultForGremlinPoolSize(final Settings settings) {
+        if (settings.gremlinPool == 0)
+            settings.gremlinPool = Runtime.getRuntime().availableProcessors();
     }
 }

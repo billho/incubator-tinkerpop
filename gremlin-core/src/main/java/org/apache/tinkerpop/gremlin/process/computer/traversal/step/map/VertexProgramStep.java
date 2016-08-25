@@ -21,9 +21,11 @@ package org.apache.tinkerpop.gremlin.process.computer.traversal.step.map;
 
 import org.apache.tinkerpop.gremlin.process.computer.Computer;
 import org.apache.tinkerpop.gremlin.process.computer.ComputerResult;
+import org.apache.tinkerpop.gremlin.process.computer.GraphComputer;
 import org.apache.tinkerpop.gremlin.process.computer.Memory;
 import org.apache.tinkerpop.gremlin.process.computer.traversal.TraversalVertexProgram;
 import org.apache.tinkerpop.gremlin.process.computer.traversal.step.VertexComputing;
+import org.apache.tinkerpop.gremlin.process.computer.util.EmptyMemory;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalSideEffects;
@@ -31,15 +33,21 @@ import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.AbstractStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.EmptyStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.ProfileStep;
+import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalInterruptedException;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 
 import java.util.NoSuchElementException;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 
 /**
  * @author Marko A. Rodriguez (http://markorodriguez.com)
+ * @author Stephen Mallette (http://stephen.genoprime.com)
  */
 public abstract class VertexProgramStep extends AbstractStep<ComputerResult, ComputerResult> implements VertexComputing {
+
+    public static final String ROOT_TRAVERSAL = "gremlin.vertexProgramStep.rootTraversal";
+    public static final String STEP_ID = "gremlin.vertexProgramStep.stepId";
 
     protected Computer computer = Computer.compute();
 
@@ -51,28 +59,46 @@ public abstract class VertexProgramStep extends AbstractStep<ComputerResult, Com
 
     @Override
     protected Traverser.Admin<ComputerResult> processNextStart() throws NoSuchElementException {
+        Future<ComputerResult> future = null;
         try {
             if (this.first && this.getPreviousStep() instanceof EmptyStep) {
                 this.first = false;
                 final Graph graph = this.getTraversal().getGraph().get();
-                final ComputerResult result = this.generateComputer(graph).program(this.generateProgram(graph)).submit().get();
+                future = this.generateComputer(graph).program(this.generateProgram(graph, EmptyMemory.instance())).submit();
+                final ComputerResult result = future.get();
                 this.processMemorySideEffects(result.memory());
                 return this.getTraversal().getTraverserGenerator().generate(result, this, 1l);
             } else {
                 final Traverser.Admin<ComputerResult> traverser = this.starts.next();
                 final Graph graph = traverser.get().graph();
-                final ComputerResult result = this.generateComputer(graph).program(this.generateProgram(graph)).submit().get();
+                final Memory memory = traverser.get().memory();
+                future = this.generateComputer(graph).program(this.generateProgram(graph, memory)).submit();
+                final ComputerResult result = future.get();
                 this.processMemorySideEffects(result.memory());
                 return traverser.split(result, this);
             }
-        } catch (final InterruptedException | ExecutionException e) {
+        } catch (final InterruptedException ie) {
+            // the thread running the traversal took an interruption while waiting on the call the future.get().
+            // the future should then be cancelled with interruption so that the the GraphComputer that created
+            // the future knows we don't care about it anymore. The GraphComputer should attempt to respect this
+            // cancellation request.
+            if (future != null) future.cancel(true);
+            throw new TraversalInterruptedException();
+        } catch (ExecutionException e) {
             throw new IllegalStateException(e.getMessage(), e);
         }
     }
 
     @Override
     public Computer getComputer() {
-        return this.computer;
+        Computer tempComputer = this.computer;
+        if (!this.isEndStep()) {
+            if (null == tempComputer.getPersist())
+                tempComputer = tempComputer.persist(GraphComputer.Persist.EDGES);
+            if (null == tempComputer.getResultGraph())
+                tempComputer = tempComputer.result(GraphComputer.ResultGraph.NEW);
+        }
+        return tempComputer;
     }
 
     @Override
@@ -91,11 +117,12 @@ public abstract class VertexProgramStep extends AbstractStep<ComputerResult, Com
     }
 
     private void processMemorySideEffects(final Memory memory) {
-        // unfortunately there is no easy way to test this in a test case
-        assert this.isEndStep() == memory.exists(TraversalVertexProgram.HALTED_TRAVERSERS);
+        // update the traversal side-effects with the state of the memory after the OLAP job execution
         final TraversalSideEffects sideEffects = this.getTraversal().getSideEffects();
         for (final String key : memory.keys()) {
             if (sideEffects.exists(key)) {
+                // halted traversers should never be propagated through sideEffects
+                assert !key.equals(TraversalVertexProgram.HALTED_TRAVERSERS);
                 sideEffects.set(key, memory.get(key));
             }
         }

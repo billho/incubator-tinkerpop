@@ -19,6 +19,12 @@
 package org.apache.tinkerpop.gremlin.server;
 
 import java.io.File;
+
+import io.netty.handler.ssl.SslContext;
+import io.netty.handler.ssl.SslContextBuilder;
+import io.netty.handler.ssl.SslProvider;
+import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
+import io.netty.handler.ssl.util.SelfSignedCertificate;
 import org.apache.commons.lang.exception.ExceptionUtils;
 import org.apache.log4j.Logger;
 import org.apache.tinkerpop.gremlin.driver.Client;
@@ -35,6 +41,7 @@ import org.apache.tinkerpop.gremlin.driver.simple.SimpleClient;
 import org.apache.tinkerpop.gremlin.driver.simple.WebSocketClient;
 import org.apache.tinkerpop.gremlin.groovy.jsr223.GremlinGroovyScriptEngine;
 import org.apache.tinkerpop.gremlin.groovy.jsr223.customizer.CompileStaticCustomizerProvider;
+import org.apache.tinkerpop.gremlin.groovy.jsr223.customizer.ConfigurationCustomizerProvider;
 import org.apache.tinkerpop.gremlin.groovy.jsr223.customizer.InterpreterModeCustomizerProvider;
 import org.apache.tinkerpop.gremlin.groovy.jsr223.customizer.SimpleSandboxExtension;
 import org.apache.tinkerpop.gremlin.groovy.jsr223.customizer.TimedInterruptCustomizerProvider;
@@ -65,12 +72,16 @@ import java.util.stream.IntStream;
 
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.core.IsInstanceOf.instanceOf;
 import static org.hamcrest.core.IsNot.not;
 import static org.hamcrest.core.StringEndsWith.endsWith;
 import static org.hamcrest.core.StringStartsWith.startsWith;
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 import static org.junit.Assume.assumeThat;
+import static org.junit.Assert.assertEquals;
 
 /**
  * Integration tests for server-side settings and processing.
@@ -125,6 +136,11 @@ public class GremlinServerIntegrateTest extends AbstractGremlinServerIntegration
                 settings.ssl = new Settings.SslSettings();
                 settings.ssl.enabled = true;
                 break;
+            case "shouldEnableSslWithSslContextProgrammaticallySpecified":
+                settings.ssl = new Settings.SslSettings();
+                settings.ssl.enabled = true;
+                settings.ssl.overrideSslContext(createServerSslContext());
+                break;
             case "shouldStartWithDefaultSettings":
                 return new Settings();
             case "shouldHaveTheSessionTimeout":
@@ -149,9 +165,24 @@ public class GremlinServerIntegrateTest extends AbstractGremlinServerIntegration
             case "shouldReceiveFailureTimeOutOnScriptEvalOfOutOfControlLoop":
                 settings.scriptEngines.get("gremlin-groovy").config = getScriptEngineConfForTimedInterrupt();
                 break;
+            case "shouldUseBaseScript":
+                settings.scriptEngines.get("gremlin-groovy").config = getScriptEngineConfForBaseScript();
+                break;
         }
 
         return settings;
+    }
+
+    private static SslContext createServerSslContext() {
+        final SslProvider provider = SslProvider.JDK;
+
+        try {
+            // this is not good for production - just testing
+            final SelfSignedCertificate ssc = new SelfSignedCertificate();
+            return SslContextBuilder.forServer(ssc.certificate(), ssc.privateKey()).sslProvider(provider).build();
+        } catch (Exception ce) {
+            throw new RuntimeException("Couldn't setup self-signed certificate for test");
+        }
     }
 
     private static Map<String, Object> getScriptEngineConfForSimpleSandbox() {
@@ -180,6 +211,30 @@ public class GremlinServerIntegrateTest extends AbstractGremlinServerIntegration
         interpreterProviderConf.put(InterpreterModeCustomizerProvider.class.getName(), Collections.EMPTY_LIST);
         scriptEngineConf.put("compilerCustomizerProviders", interpreterProviderConf);
         return scriptEngineConf;
+    }
+
+    private static Map<String, Object> getScriptEngineConfForBaseScript() {
+        final Map<String,Object> scriptEngineConf = new HashMap<>();
+        final Map<String,Object> compilerCustomizerProviderConf = new HashMap<>();
+        final List<Object> keyValues = new ArrayList<>();
+
+        final Map<String,Object> properties = new HashMap<>();
+        properties.put("ScriptBaseClass", BaseScriptForTesting.class.getName());
+        keyValues.add(properties);
+
+        compilerCustomizerProviderConf.put(ConfigurationCustomizerProvider.class.getName(), keyValues);
+        scriptEngineConf.put("compilerCustomizerProviders", compilerCustomizerProviderConf);
+        return scriptEngineConf;
+    }
+
+    @Test
+    public void shouldUseBaseScript() throws Exception {
+        final Cluster cluster = Cluster.open();
+        final Client client = cluster.connect(name.getMethodName());
+
+        assertEquals("hello, stephen", client.submit("hello('stephen')").all().get().get(0).getString());
+
+        cluster.close();
     }
 
     @Test
@@ -272,6 +327,24 @@ public class GremlinServerIntegrateTest extends AbstractGremlinServerIntegration
     }
 
     @Test
+    public void shouldEnableSslWithSslContextProgrammaticallySpecified() throws Exception {
+        // just for testing - this is not good for production use
+        final SslContextBuilder builder = SslContextBuilder.forClient();
+        builder.trustManager(InsecureTrustManagerFactory.INSTANCE);
+        builder.sslProvider(SslProvider.JDK);
+
+        final Cluster cluster = Cluster.build().enableSsl(true).sslContext(builder.build()).create();
+        final Client client = cluster.connect();
+
+        try {
+            // this should return "nothing" - there should be no exception
+            assertEquals("test", client.submit("'test'").one().getString());
+        } finally {
+            cluster.close();
+        }
+    }
+
+    @Test
     public void shouldEnableSslButFailIfClientConnectsWithoutIt() {
         final Cluster cluster = Cluster.build().enableSsl(false).create();
         final Client client = cluster.connect();
@@ -326,12 +399,12 @@ public class GremlinServerIntegrateTest extends AbstractGremlinServerIntegration
                 });
             });
 
-            assertTrue(latch.await(30000, TimeUnit.MILLISECONDS));
+            assertThat(latch.await(30000, TimeUnit.MILLISECONDS), is(true));
             assertEquals(0, latch.getCount());
-            assertFalse(faulty.get());
-            assertTrue(expected.get());
+            assertThat(faulty.get(), is(false));
+            assertThat(expected.get(), is(true));
 
-            assertTrue(recordingAppender.getMessages().stream().anyMatch(m -> m.contains("Pausing response writing as writeBufferHighWaterMark exceeded on")));
+            assertThat(recordingAppender.getMessages().stream().anyMatch(m -> m.contains("Pausing response writing as writeBufferHighWaterMark exceeded on")), is(true));
         } catch (Exception ex) {
             fail("Shouldn't have tossed an exception");
         } finally {
@@ -354,6 +427,26 @@ public class GremlinServerIntegrateTest extends AbstractGremlinServerIntegration
         try (SimpleClient client = new WebSocketClient()) {
             final Map<String, Object> bindings = new HashMap<>();
             bindings.put(T.id.getAccessor(), "123");
+            final RequestMessage request = RequestMessage.build(Tokens.OPS_EVAL)
+                    .addArg(Tokens.ARGS_GREMLIN, "[1,2,3,4,5,6,7,8,9,0]")
+                    .addArg(Tokens.ARGS_BINDINGS, bindings).create();
+            final CountDownLatch latch = new CountDownLatch(1);
+            final AtomicBoolean pass = new AtomicBoolean(false);
+            client.submit(request, result -> {
+                if (result.getStatus().getCode() != ResponseStatusCode.PARTIAL_CONTENT) {
+                    pass.set(ResponseStatusCode.REQUEST_ERROR_INVALID_REQUEST_ARGUMENTS == result.getStatus().getCode());
+                    latch.countDown();
+                }
+            });
+
+            if (!latch.await(3000, TimeUnit.MILLISECONDS))
+                fail("Request should have returned error, but instead timed out");
+            assertThat(pass.get(), is(true));
+        }
+
+        try (SimpleClient client = new WebSocketClient()) {
+            final Map<String, Object> bindings = new HashMap<>();
+            bindings.put("id", "123");
             final RequestMessage request = RequestMessage.build(Tokens.OPS_EVAL)
                     .addArg(Tokens.ARGS_GREMLIN, "[1,2,3,4,5,6,7,8,9,0]")
                     .addArg(Tokens.ARGS_BINDINGS, bindings).create();
@@ -391,7 +484,7 @@ public class GremlinServerIntegrateTest extends AbstractGremlinServerIntegration
 
             if (!latch.await(3000, TimeUnit.MILLISECONDS))
                 fail("Request should have returned error, but instead timed out");
-            assertTrue(pass.get());
+            assertThat(pass.get(), is(true));
         }
     }
 
@@ -414,7 +507,7 @@ public class GremlinServerIntegrateTest extends AbstractGremlinServerIntegration
 
             if (!latch.await(3000, TimeUnit.MILLISECONDS))
                 fail("Request should have returned error, but instead timed out");
-            assertTrue(pass.get());
+            assertThat(pass.get(), is(true));
         }
     }
 
@@ -518,8 +611,12 @@ public class GremlinServerIntegrateTest extends AbstractGremlinServerIntegration
         }
     }
 
+    /**
+     * @deprecated As of release 3.2.1, replaced by tests covering {@link Settings#scriptEvaluationTimeout}.
+     */
     @Test
     @SuppressWarnings("unchecked")
+    @Deprecated
     public void shouldReceiveFailureTimeOutOnTotalSerialization() throws Exception {
         try (SimpleClient client = new WebSocketClient()){
             final List<ResponseMessage> responses = client.submit("(0..<100000)");
@@ -645,7 +742,7 @@ public class GremlinServerIntegrateTest extends AbstractGremlinServerIntegration
             client.submit("1+1").all().join();
             fail();
         } catch (RuntimeException re) {
-            assertTrue(re.getCause().getCause() instanceof ClosedChannelException);
+            assertThat(re.getCause().getCause() instanceof ClosedChannelException, is(true));
 
             //
             // should recover when the server comes back

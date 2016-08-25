@@ -14,7 +14,9 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ////
-image::apache-tinkerpop-logo.png[width=500]
+image::apache-tinkerpop-logo.png[width=500,link="http://tinkerpop.apache.org"]
+
+*x.y.z*
 
 :toc-position: left
 
@@ -147,7 +149,7 @@ Implementing MapReduce Emitters
 +++++++++++++++++++++++++++++++
 
 image:hadoop-logo-notext.png[width=150,float=left] The MapReduce framework in TinkerPop3 is similar to the model
-popularized by link:http://apache.hadoop.org[Hadoop]. The primary difference is that all Mappers process the vertices
+popularized by link:http://hadoop.apache.org[Hadoop]. The primary difference is that all Mappers process the vertices
 of the graph, not an arbitrary key/value pair. However, the vertices' edges can not be accessed -- only their
 properties. This greatly reduces the amount of data needed to be pushed through the MapReduce engine as any edge
 information required, can be computed in the VertexProgram.execute() method. Moreover, at this stage, vertices can
@@ -287,6 +289,73 @@ for (final MapReduce mapReduce : mapReducers) {
 `MapReduce.addResultToMemory()` implementation.
 <2> If there is no reduce stage, the the map-stage results are inserted into Memory as specified by the application
 developer's `MapReduce.addResultToMemory()` implementation.
+
+Hadoop-Gremlin Usage
+^^^^^^^^^^^^^^^^^^^^
+
+Hadoop-Gremlin is centered around `InputFormats` and `OutputFormats`. If a 3rd-party graph system provider wishes to
+leverage Hadoop-Gremlin (and its respective `GraphComputer` engines), then they need to provide, at minimum, a
+Hadoop2 `InputFormat<NullWritable,VertexWritable>` for their graph system. If the provider wishes to persist computed
+results back to their graph system (and not just to HDFS via a `FileOutputFormat`), then a graph system specific
+`OutputFormat<NullWritable,VertexWritable>` must be developed as well.
+
+Conceptually, `HadoopGraph` is a wrapper around a `Configuration` object. There is no "data" in the `HadoopGraph` as
+the `InputFormat` specifies where and how to get the graph data at OLAP (and OLTP) runtime. Thus, `HadoopGraph` is a
+small object with little overhead. Graph system providers should realize `HadoopGraph` as the gateway to the OLAP
+features offered by Hadoop-Gremlin. For example, a graph system specific `Graph.compute(Class<? extends GraphComputer>
+graphComputerClass)`-method may look as follows:
+
+[source,java]
+----
+public <C extends GraphComputer> C compute(final Class<C> graphComputerClass) throws IllegalArgumentException {
+  try {
+    if (AbstractHadoopGraphComputer.class.isAssignableFrom(graphComputerClass))
+      return graphComputerClass.getConstructor(HadoopGraph.class).newInstance(this);
+    else
+      throw Graph.Exceptions.graphDoesNotSupportProvidedGraphComputer(graphComputerClass);
+  } catch (final Exception e) {
+    throw new IllegalArgumentException(e.getMessage(),e);
+  }
+}
+----
+
+Note that the configurations for Hadoop are assumed to be in the `Graph.configuration()` object. If this is not the
+case, then the `Configuration` provided to `HadoopGraph.open()` should be dynamically created within the
+`compute()`-method. It is in the provided configuration that `HadoopGraph` gets the various properties which
+determine how to read and write data to and from Hadoop. For instance, `gremlin.hadoop.graphReader` and
+`gremlin.hadoop.graphWriter`.
+
+GraphFilterAware Interface
+++++++++++++++++++++++++++
+
+<<graph-filter,Graph filters>> by OLAP processors to only pull a subgraph of the full graph from the graph data source. For instance, the
+example below constructs a `GraphFilter` that will only pull the the "knows"-graph amongst people into the `GraphComputer`
+for processing.
+
+[source,java]
+----
+graph.compute().vertices(hasLabel("person")).edges(bothE("knows"))
+----
+
+If the provider has a custom `InputRDD`, they can implement `GraphFilterAware` and that graph filter will be provided to their
+`InputRDD` at load time. For providers that use an `InputFormat`, state but the graph filter can be accessed from the configuration
+as such:
+
+[source,java]
+----
+if (configuration.containsKey(Constants.GREMLIN_HADOOP_GRAPH_FILTER))
+  this.graphFilter = VertexProgramHelper.deserialize(configuration, Constants.GREMLIN_HADOOP_GRAPH_FILTER);
+----
+
+PersistResultGraphAware Interface
++++++++++++++++++++++++++++++++++
+
+A graph system provider's `OutputFormat` should implement the `PersistResultGraphAware` interface which
+determines which persistence options are available to the user. For the standard file-based `OutputFormats` provided
+by Hadoop-Gremlin (e.g. <<gryo-io-format,`GryoOutputFormat`>>, <<graphson-io-format,`GraphSONOutputFormat`>>,
+and <<script-io-format,`ScriptInputOutputFormat`>>) `ResultGraph.ORIGINAL` is not supported as the original graph
+data files are not random access and are, in essence, immutable. Thus, these file-based `OutputFormats` only support
+`ResultGraph.NEW` which creates a copy of the data specified by the `Persist` enum.
 
 [[io-implementations]]
 IO Implementations
@@ -525,6 +594,11 @@ off for the test suite (the Maven SureFire Plugin is configured this way by defa
 include this setting, `<reuseForks>false</reuseForks>`, in the SureFire configuration if tests are failing in an
 unexplainable way.
 
+TIP: When running the `gremlin-test` suite against your implementation, you may need to set `build.dir` as an
+environment variable, depending on your project layout. Some tests require this to find a writable directory for
+creating temporary files. The value is typically set to the project build directory. For example using the Maven
+SureFire Plugin, this is done via the configuration argLine with `-Dbuild.dir=${project.build.directory}`.
+
 Accessibility via GremlinPlugin
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -712,13 +786,13 @@ Gremlin Server will send:
 |=========================================================
 
 OpProcessors Arguments
-^^^^^^^^^^^^^^^^^^^^^^
+~~~~~~~~~~~~~~~~~~~~~~
 
 The following sections define a non-exhaustive list of available operations and arguments for embedded `OpProcessors`
 (i.e. ones packaged with Gremlin Server).
 
 Common
-++++++
+^^^^^^
 
 All `OpProcessor` instances support these arguments.
 
@@ -729,7 +803,7 @@ All `OpProcessor` instances support these arguments.
 |=========================================================
 
 Standard OpProcessor
-++++++++++++++++++++
+^^^^^^^^^^^^^^^^^^^^
 
 The "standard" `OpProcessor` handles requests for the primary function of Gremlin Server - executing Gremlin.
 Requests made to this `OpProcessor` are "sessionless" in the sense that a request must encapsulate the entirety
@@ -771,7 +845,7 @@ to send an alias pair with key of "g" and value of "g2" and thus allow the scrip
 |=========================================================
 
 Session OpProcessor
-+++++++++++++++++++
+^^^^^^^^^^^^^^^^^^^
 
 The "session" `OpProcessor` handles requests for the primary function of Gremlin Server - executing Gremlin. It is
 like the "standard" `OpProcessor`, but instead maintains state between sessions and allows the option to leave all
@@ -797,6 +871,7 @@ Gremlin Server are deployed, session state is not shared among them.
 [width="100%",cols="2,2,9",options="header"]
 |=========================================================
 |Key |Type |Description
+|saslMechanism |String | The SASL mechanism: `PLAIN` or `GSSAPI`. Note that it is up to the server implementation to use or disregard this setting (default implementation in Gremlin Server ignores it).
 |sasl |byte[] | *Required* The response to the server authentication challenge.  This value is dependent on the SASL authentication mechanism required by the server.
 |=========================================================
 
@@ -825,7 +900,7 @@ to send an alias pair with key of "g" and value of "g2" and thus allow the scrip
 |=========================================================
 
 Authentication
-^^^^^^^^^^^^^^
+~~~~~~~~~~~~~~
 
 Gremlin Server supports link:https://en.wikipedia.org/wiki/Simple_Authentication_and_Security_Layer[SASL-based]
 authentication.  A SASL implementation provides a series of challenges and responses that a driver must comply with

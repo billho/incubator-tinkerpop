@@ -42,15 +42,6 @@ familiarize their self with Giraph (link:http://giraph.apache.org/quick_start.ht
 Installing Hadoop-Gremlin
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The `HADOOP_GREMLIN_LIBS` references locations that contains jars that should be uploaded to a respective
-distributed cache (link:http://hadoop.apache.org/docs/current/hadoop-yarn/hadoop-yarn-site/YARN.html[YARN] or SparkServer).
-Note that the locations in `HADOOP_GREMLIN_LIBS` can be a colon-separated (`:`) and all jars from all locations will
-be loaded into the cluster. Typically, only the jars of the respective GraphComputer are required to be loaded (e.g.
-`GiraphGraphComputer` plugin lib directory).
-
-[source,shell]
-export HADOOP_GREMLIN_LIBS=/usr/local/gremlin-console/ext/giraph-gremlin/lib
-
 If using <<gremlin-console,Gremlin Console>>, it is important to install the Hadoop-Gremlin plugin. Note that
 Hadoop-Gremlin requires a Gremlin Console restart after installing.
 
@@ -79,6 +70,30 @@ gremlin> :plugin use tinkerpop.hadoop
 ==>tinkerpop.hadoop activated
 gremlin>
 ----
+
+It is important that the `CLASSPATH` environmental variable references `HADOOP_CONF_DIR` and that the configuration
+files in `HADOOP_CONF_DIR` contain references to a live Hadoop cluster. It is easy to verify a proper configuration
+from within the Gremlin Console. If `hdfs` references the local file system, then there is a configuration issue.
+
+[source,text]
+----
+gremlin> hdfs
+==>storage[org.apache.hadoop.fs.LocalFileSystem@65bb9029] // BAD
+
+gremlin> hdfs
+==>storage[DFS[DFSClient[clientName=DFSClient_NONMAPREDUCE_1229457199_1, ugi=user (auth:SIMPLE)]]] // GOOD
+----
+
+The `HADOOP_GREMLIN_LIBS` references locations that contain jars that should be uploaded to a respective
+distributed cache (link:http://hadoop.apache.org/docs/current/hadoop-yarn/hadoop-yarn-site/YARN.html[YARN] or SparkServer).
+Note that the locations in `HADOOP_GREMLIN_LIBS` can be colon-separated (`:`) and all jars from all locations will
+be loaded into the cluster. Locations can be local paths (e.g. `/path/to/libs`), but may also be prefixed with a file
+scheme to reference files or directories in different file systems (e.g. `hdfs:///path/to/distributed/libs`).
+Typically, only the jars of the respective GraphComputer are required to be loaded (e.g. `GiraphGraphComputer` plugin lib
+directory).
+
+[source,shell]
+export HADOOP_GREMLIN_LIBS=/usr/local/gremlin-console/ext/giraph-gremlin/lib
 
 Properties Files
 ~~~~~~~~~~~~~~~~
@@ -260,7 +275,7 @@ Furthermore the `lib/` directory should be distributed across all machines in th
 provides a helper script, which takes the Spark installation directory and the the Spark machines as input:
 
 [source,shell]
-bin/init-tp-spark.sh /usr/local/spark spark@10.0.0.1 spark@10.0.0.2 spark@10.0.0.3
+bin/hadoop/init-tp-spark.sh /usr/local/spark spark@10.0.0.1 spark@10.0.0.2 spark@10.0.0.3
 
 Once the `lib/` directory is distributed, `SparkGraphComputer` can be used as follows.
 
@@ -877,71 +892,3 @@ Vertex 4 ("josh") is isolated below:
   }
 }
 ----
-
-Hadoop-Gremlin for Graph System Providers
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Hadoop-Gremlin is centered around `InputFormats` and `OutputFormats`. If a 3rd-party graph system provider wishes to
-leverage Hadoop-Gremlin (and its respective `GraphComputer` engines), then they need to provide, at minimum, a
-Hadoop2 `InputFormat<NullWritable,VertexWritable>` for their graph system. If the provider wishes to persist computed
-results back to their graph system (and not just to HDFS via a `FileOutputFormat`), then a graph system specific
-`OutputFormat<NullWritable,VertexWritable>` must be developed as well.
-
-Conceptually, `HadoopGraph` is a wrapper around a `Configuration` object. There is no "data" in the `HadoopGraph` as
-the `InputFormat` specifies where and how to get the graph data at OLAP (and OLTP) runtime. Thus, `HadoopGraph` is a
-small object with little overhead. Graph system providers should realize `HadoopGraph` as the gateway to the OLAP
-features offered by Hadoop-Gremlin. For example, a graph system specific `Graph.compute(Class<? extends GraphComputer>
-graphComputerClass)`-method may look as follows:
-
-[source,java]
-----
-public <C extends GraphComputer> C compute(final Class<C> graphComputerClass) throws IllegalArgumentException {
-  try {
-    if (AbstractHadoopGraphComputer.class.isAssignableFrom(graphComputerClass))
-      return graphComputerClass.getConstructor(HadoopGraph.class).newInstance(this);
-    else
-      throw Graph.Exceptions.graphDoesNotSupportProvidedGraphComputer(graphComputerClass);
-  } catch (final Exception e) {
-    throw new IllegalArgumentException(e.getMessage(),e);
-  }
-}
-----
-
-Note that the configurations for Hadoop are assumed to be in the `Graph.configuration()` object. If this is not the
-case, then the `Configuration` provided to `HadoopGraph.open()` should be dynamically created within the
-`compute()`-method. It is in the provided configuration that `HadoopGraph` gets the various properties which
-determine how to read and write data to and from Hadoop. For instance, `gremlin.hadoop.graphReader` and
-`gremlin.hadoop.graphWriter`.
-
-GraphFilterAware Interface
-++++++++++++++++++++++++++
-
-<<graph-filter,Graph filters>> by OLAP processors to only pull a subgraph of the full graph from the graph data source. For instance, the
-example below constructs a `GraphFilter` that will only pull the the "knows"-graph amongst people into the `GraphComputer`
-for processing.
-
-[source,java]
-----
-graph.compute().vertices(hasLabel("person")).edges(bothE("knows"))
-----
-
-If the provider has a custom `InputRDD`, they can implement `GraphFilterAware` and that graph filter will be provided to their
-`InputRDD` at load time. For providers that use an `InputFormat`, state but the graph filter can be accessed from the configuration
-as such:
-
-[source,java]
-----
-if (configuration.containsKey(Constants.GREMLIN_HADOOP_GRAPH_FILTER))
-  this.graphFilter = VertexProgramHelper.deserialize(configuration, Constants.GREMLIN_HADOOP_GRAPH_FILTER);
-----
-
-PersistResultGraphAware Interface
-+++++++++++++++++++++++++++++++++
-
-A graph system provider's `OutputFormat` should implement the `PersistResultGraphAware` interface which
-determines which persistence options are available to the user. For the standard file-based `OutputFormats` provided
-by Hadoop-Gremlin (e.g. <<gryo-io-format,`GryoOutputFormat`>>, <<graphson-io-format,`GraphSONOutputFormat`>>,
-and <<script-io-format,`ScriptInputOutputFormat`>>) `ResultGraph.ORIGINAL` is not supported as the original graph
-data files are not random access and are, in essence, immutable. Thus, these file-based `OutputFormats` only support
-`ResultGraph.NEW` which creates a copy of the data specified by the `Persist` enum.
-

@@ -14,7 +14,9 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ////
-image::apache-tinkerpop-logo.png[width=500]
+image::apache-tinkerpop-logo.png[width=500,link="http://tinkerpop.apache.org"]
+
+*x.y.z*
 
 :toc-position: left
 
@@ -25,6 +27,18 @@ This document contains information for TinkerPop developers, contributors, and c
 technical information and other internal processes related to the project.
 
 include::contributing.asciidoc[]
+
+include::development-environment.asciidoc[]
+
+include::for-committers.asciidoc[]
+
+For Providers
+=============
+
+Graph Providers are those who develop third-party systems and libraries on top of the various TinkerPop APIs and
+protocols. They manage their projects independently of TinkerPop in separate repositories. Additional details for
+providers can be found in the link:http://tinkerpop.apache.org/docs/x.y.z/dev/provider/[Provider Documentation].
+
 
 include::release.asciidoc[]
 

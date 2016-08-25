@@ -25,7 +25,7 @@ limitations under the License.
     </parent>
     <groupId>org.apache.tinkerpop</groupId>
     <artifactId>tinkerpop</artifactId>
-    <version>3.2.0-SNAPSHOT</version>
+    <version>3.2.2-SNAPSHOT</version>
     <packaging>pom</packaging>
     <name>Apache TinkerPop</name>
     <description>A Graph Computing Framework</description>
@@ -127,19 +127,20 @@ limitations under the License.
         <module>gremlin-archetype</module>
     </modules>
     <scm>
-        <connection>scm:git:git@git-wip-us.apache.org:repos/asf/incubator-tinkerpop.git</connection>
-        <developerConnection>scm:git:git@git-wip-us.apache.org:repos/asf/incubator-tinkerpop.git</developerConnection>
-        <url>https://git-wip-us.apache.org/repos/asf?p=incubator-tinkerpop.git</url>
+        <connection>scm:git:git@git-wip-us.apache.org:repos/asf/tinkerpop.git</connection>
+        <developerConnection>scm:git:git@git-wip-us.apache.org:repos/asf/tinkerpop.git</developerConnection>
+        <url>https://git-wip-us.apache.org/repos/asf?p=tinkerpop.git</url>
     </scm>
     <properties>
-        <groovy.version>2.4.6</groovy.version>
+        <commons.configuration.version>1.10</commons.configuration.version>
+        <groovy.version>2.4.7</groovy.version>
         <junit.version>4.12</junit.version>
         <metrics.version>3.0.2</metrics.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <skipIntegrationTests>true</skipIntegrationTests>
         <skipPerformanceTests>true</skipPerformanceTests>
-        <slf4j.version>1.7.19</slf4j.version>
+        <slf4j.version>1.7.21</slf4j.version>
         <hadoop.version>2.7.2</hadoop.version>
         <java.tuples.version>1.2</java.tuples.version>
         <javadoc-plugin.version>2.10.1</javadoc-plugin.version>
@@ -361,7 +362,7 @@ limitations under the License.
                                 <argLine>-Dlog4j.configuration=${log4j-test.properties} -Dhost=localhost -Dport=8182
                                     -Djub.consumers=CONSOLE,H2 -Djub.db.file=target/performance/h2/benchmarks
                                     -Djub.charts.dir=target/performance/charts -Djub.customkey=${project.parent.version}
-                                    -Dbuild.dir=${project.build.directory} -Dis.testing=true
+                                    -Dbuild.dir=${project.build.directory}  -Dis.testing=true
                                 </argLine>
                                 <summaryFile>target/failsafe-reports/failsafe-integration.xml</summaryFile>
                             </configuration>
@@ -483,7 +484,7 @@ limitations under the License.
             <dependency>
                 <groupId>commons-configuration</groupId>
                 <artifactId>commons-configuration</artifactId>
-                <version>1.10</version>
+                <version>${commons.configuration.version}</version>
                 <exclusions>
                     <!-- self-conflict -->
                     <exclusion>
@@ -496,6 +497,11 @@ limitations under the License.
                 <groupId>commons-collections</groupId>
                 <artifactId>commons-collections</artifactId>
                 <version>3.2.2</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-lang3</artifactId>
+                <version>3.3.1</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
@@ -585,6 +591,11 @@ limitations under the License.
                     </exclusion>
                 </exclusions>
             </dependency>
+            <dependency>
+                <groupId>log4j</groupId>
+                <artifactId>log4j</artifactId>
+                <version>1.2.17</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -669,6 +680,7 @@ limitations under the License.
                                     </resources>
                                     <nonFilteredFileExtensions>
                                         <nonFilteredFileExtension>png</nonFilteredFileExtension>
+                                        <nonFilteredFileExtension>py</nonFilteredFileExtension>
                                     </nonFilteredFileExtensions>
                                 </configuration>
                             </execution>
@@ -679,6 +691,28 @@ limitations under the License.
                         <artifactId>asciidoctor-maven-plugin</artifactId>
                         <inherited>false</inherited>
                         <executions>
+                            <execution>
+                                <id>home</id>
+                                <phase>generate-resources</phase>
+                                <goals>
+                                    <goal>process-asciidoc</goal>
+                                </goals>
+                                <configuration>
+                                    <sourceDirectory>${asciidoc.input.dir}/</sourceDirectory>
+                                    <sourceDocumentName>index.asciidoc</sourceDocumentName>
+                                    <outputDirectory>${htmlsingle.output.dir}/</outputDirectory>
+                                    <backend>html5</backend>
+                                    <doctype>article</doctype>
+                                    <attributes>
+                                        <imagesdir>images</imagesdir>
+                                        <encoding>UTF-8</encoding>
+                                        <stylesdir>${asciidoctor.style.dir}</stylesdir>
+                                        <stylesheet>tinkerpop.css</stylesheet>
+                                        <source-highlighter>coderay</source-highlighter>
+                                        <basedir>${project.basedir}</basedir>
+                                    </attributes>
+                                </configuration>
+                            </execution>
                             <execution>
                                 <id>reference-book</id>
                                 <phase>generate-resources</phase>
@@ -780,6 +814,31 @@ limitations under the License.
                                 </configuration>
                             </execution>
                             <execution>
+                                <id>recipe-book</id>
+                                <phase>generate-resources</phase>
+                                <goals>
+                                    <goal>process-asciidoc</goal>
+                                </goals>
+                                <configuration>
+                                    <sourceDirectory>${asciidoc.input.dir}/recipes</sourceDirectory>
+                                    <sourceDocumentName>index.asciidoc</sourceDocumentName>
+                                    <outputDirectory>${htmlsingle.output.dir}/recipes</outputDirectory>
+                                    <backend>html5</backend>
+                                    <doctype>book</doctype>
+                                    <attributes>
+                                        <imagesdir>../images</imagesdir>
+                                        <encoding>UTF-8</encoding>
+                                        <toc>true</toc>
+                                        <toclevels>2</toclevels>
+                                        <toc-position>left</toc-position>
+                                        <stylesdir>${asciidoctor.style.dir}</stylesdir>
+                                        <stylesheet>tinkerpop.css</stylesheet>
+                                        <source-highlighter>coderay</source-highlighter>
+                                        <basedir>${project.basedir}</basedir>
+                                    </attributes>
+                                </configuration>
+                            </execution>
+                            <execution>
                                 <id>tutorial-getting-started</id>
                                 <phase>generate-resources</phase>
                                 <goals>
@@ -788,8 +847,7 @@ limitations under the License.
                                 <configuration>
                                     <sourceDirectory>${asciidoc.input.dir}/tutorials/getting-started</sourceDirectory>
                                     <sourceDocumentName>index.asciidoc</sourceDocumentName>
-                                    <outputDirectory>${htmlsingle.output.dir}/tutorials/getting-started
-                                    </outputDirectory>
+                                    <outputDirectory>${htmlsingle.output.dir}/tutorials/getting-started</outputDirectory>
                                     <backend>html5</backend>
                                     <doctype>article</doctype>
                                     <attributes>
@@ -809,11 +867,31 @@ limitations under the License.
                                     <goal>process-asciidoc</goal>
                                 </goals>
                                 <configuration>
-                                    <sourceDirectory>${asciidoc.input.dir}/tutorials/the-gremlin-console
-                                    </sourceDirectory>
+                                    <sourceDirectory>${asciidoc.input.dir}/tutorials/the-gremlin-console</sourceDirectory>
                                     <sourceDocumentName>index.asciidoc</sourceDocumentName>
-                                    <outputDirectory>${htmlsingle.output.dir}/tutorials/the-gremlin-console
-                                    </outputDirectory>
+                                    <outputDirectory>${htmlsingle.output.dir}/tutorials/the-gremlin-console</outputDirectory>
+                                    <backend>html5</backend>
+                                    <doctype>article</doctype>
+                                    <attributes>
+                                        <imagesdir>../../images</imagesdir>
+                                        <encoding>UTF-8</encoding>
+                                        <stylesdir>${asciidoctor.style.dir}</stylesdir>
+                                        <stylesheet>tinkerpop.css</stylesheet>
+                                        <source-highlighter>coderay</source-highlighter>
+                                        <basedir>${project.basedir}</basedir>
+                                    </attributes>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>tutorial-gremlin-language-variants</id>
+                                <phase>generate-resources</phase>
+                                <goals>
+                                    <goal>process-asciidoc</goal>
+                                </goals>
+                                <configuration>
+                                    <sourceDirectory>${asciidoc.input.dir}/tutorials/gremlin-language-variants</sourceDirectory>
+                                    <sourceDocumentName>index.asciidoc</sourceDocumentName>
+                                    <outputDirectory>${htmlsingle.output.dir}/tutorials/gremlin-language-variants</outputDirectory>
                                     <backend>html5</backend>
                                     <doctype>article</doctype>
                                     <attributes>
@@ -946,6 +1024,9 @@ limitations under the License.
                                         <include>
                                             org/apache/tinkerpop/gremlin/process/traversal/dsl/graph/GraphTraversal.java
                                         </include>
+                                        <include>
+                                            org/apache/tinkerpop/gremlin/process/traversal/dsl/graph/GraphTraversalSource.java
+                                        </include>
                                         <!-- driver -->
                                         <include>org/apache/tinkerpop/gremlin/driver/*.java
                                         </include>
@@ -1003,7 +1084,7 @@ limitations under the License.
                         <artifactId>maven-surefire-plugin</artifactId>
                         <version>2.17</version>
                         <configuration>
-                            <argLine>-Dlog4j.configuration=${log4j-silent.properties} -Dbuild.dir=${project.build.directory}  -Dis.testing=true
+                            <argLine>-Dlog4j.configuration=${log4j-silent.properties} -Dbuild.dir=${project.build.directory} -Dis.testing=true
                             </argLine>
                             <excludes>
                                 <exclude>**/*IntegrateTest.java</exclude>

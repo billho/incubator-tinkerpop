@@ -19,8 +19,10 @@
 
 package org.apache.tinkerpop.gremlin.process.computer.traversal.step.map;
 
-import org.apache.tinkerpop.gremlin.process.computer.GraphComputer;
+import org.apache.tinkerpop.gremlin.process.computer.GraphFilter;
+import org.apache.tinkerpop.gremlin.process.computer.Memory;
 import org.apache.tinkerpop.gremlin.process.computer.clustering.peerpressure.PeerPressureVertexProgram;
+import org.apache.tinkerpop.gremlin.process.computer.traversal.lambda.HaltedTraversersCountTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
@@ -80,28 +82,25 @@ public final class PeerPressureVertexProgramStep extends VertexProgramStep imple
 
     @Override
     public String toString() {
-        return StringFactory.stepString(this, this.edgeTraversal.get(), this.clusterProperty, this.times);
+        return StringFactory.stepString(this, this.edgeTraversal.get(), this.clusterProperty, this.times, new GraphFilter(this.computer));
     }
 
     @Override
-    public PeerPressureVertexProgram generateProgram(final Graph graph) {
+    public PeerPressureVertexProgram generateProgram(final Graph graph, final Memory memory) {
         final Traversal.Admin<Vertex, Edge> detachedTraversal = this.edgeTraversal.getPure();
         detachedTraversal.setStrategies(TraversalStrategies.GlobalCache.getStrategies(graph.getClass()));
-        return PeerPressureVertexProgram.build()
+        final PeerPressureVertexProgram.Builder builder = PeerPressureVertexProgram.build()
                 .property(this.clusterProperty)
                 .maxIterations(this.times)
-                .edges(detachedTraversal)
-                .create(graph);
+                .edges(detachedTraversal);
+        if (this.previousTraversalVertexProgram())
+            builder.initialVoteStrength(new HaltedTraversersCountTraversal());
+        return builder.create(graph);
     }
 
     @Override
     public Set<TraverserRequirement> getRequirements() {
         return TraversalParent.super.getSelfAndChildRequirements();
-    }
-
-    @Override
-    public GraphComputer generateComputer(final Graph graph) {
-        return this.computer.apply(graph).persist(GraphComputer.Persist.EDGES).result(GraphComputer.ResultGraph.NEW);
     }
 
     @Override

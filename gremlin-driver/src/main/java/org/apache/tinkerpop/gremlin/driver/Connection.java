@@ -18,6 +18,7 @@
  */
 package org.apache.tinkerpop.gremlin.driver;
 
+import io.netty.handler.codec.CodecException;
 import org.apache.tinkerpop.gremlin.driver.exception.ConnectionException;
 import org.apache.tinkerpop.gremlin.driver.message.RequestMessage;
 import io.netty.bootstrap.Bootstrap;
@@ -118,7 +119,9 @@ final class Connection {
      * the maximum number of in-process requests less the number of pending responses.
      */
     public int availableInProcess() {
-        return maxInProcess - pending.size();
+        // no need for a negative available amount - not sure that the pending size can ever exceed maximum, but
+        // better to avoid the negatives that would ensue if it did
+        return Math.max(0, maxInProcess - pending.size());
     }
 
     public boolean isDead() {
@@ -202,15 +205,17 @@ final class Connection {
                         // so this isn't going to be like a dead host situation which is handled above on a failed
                         // write operation.
                         //
-                        // in the event of an IOException, that will typically mean that the Connection might have
-                        // been closed from the server side. this is typical in situations like when a request is
-                        // sent that exceeds maxContentLength (the server closes the channel on its side).  if the
-                        // Connection is simply returned to the pool then it will be used again on a future request
-                        // and the server will refuse it and make it appear as a dead host as the write will not
-                        // succeed. instead, the Connection gets replaced which destroys the dead channel on the
-                        // client and allows a new one to be reconstructed.
+                        // in the event of an IOException (typically means that the Connection might have
+                        // been closed from the server side - this is typical in situations like when a request is
+                        // sent that exceeds maxContentLength and the server closes the channel on its side) or other
+                        // exceptions that indicate a non-recoverable state for the Connection object
+                        // (a netty CorruptedFrameException is a good example of that), the Connection cannot simply
+                        // be returned to the pool as future uses will end with refusal from the server and make it
+                        // appear as a dead host as the write will not succeed. instead, the Connection needs to be
+                        // replaced in these scenarios which destroys the dead channel on the client and allows a new
+                        // one to be reconstructed.
                         readCompleted.exceptionally(t -> {
-                            if (t instanceof IOException) {
+                            if (t instanceof IOException || t instanceof CodecException) {
                                 if (pool != null) pool.replaceConnection(thisConnection);
                             } else {
                                 thisConnection.returnToPool();

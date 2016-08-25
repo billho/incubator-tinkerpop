@@ -20,8 +20,12 @@
 package org.apache.tinkerpop.gremlin.process.computer.traversal;
 
 import org.apache.tinkerpop.gremlin.process.computer.Memory;
+import org.apache.tinkerpop.gremlin.process.computer.MemoryComputeKey;
+import org.apache.tinkerpop.gremlin.process.computer.ProgramPhase;
+import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalSideEffects;
 
+import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BinaryOperator;
@@ -35,7 +39,7 @@ public final class MemoryTraversalSideEffects implements TraversalSideEffects {
 
     private TraversalSideEffects sideEffects;
     private Memory memory;
-    private boolean onExecute;
+    private ProgramPhase phase;
 
     private MemoryTraversalSideEffects() {
         // for serialization
@@ -44,11 +48,6 @@ public final class MemoryTraversalSideEffects implements TraversalSideEffects {
     public MemoryTraversalSideEffects(final TraversalSideEffects sideEffects) {
         this.sideEffects = sideEffects;
         this.memory = null;
-    }
-
-    public void setMemory(final Memory memory, final boolean onExecute) {
-        this.memory = memory;
-        this.onExecute = onExecute;
     }
 
     public TraversalSideEffects getSideEffects() {
@@ -64,7 +63,7 @@ public final class MemoryTraversalSideEffects implements TraversalSideEffects {
 
     @Override
     public <V> V get(final String key) throws IllegalArgumentException {
-        return null == this.memory ? this.sideEffects.get(key) : this.memory.get(key);
+        return (null != this.memory && this.memory.exists(key)) ? this.memory.get(key) : this.sideEffects.get(key);
     }
 
     @Override
@@ -79,7 +78,7 @@ public final class MemoryTraversalSideEffects implements TraversalSideEffects {
 
     @Override
     public void add(final String key, final Object value) {
-        if (this.onExecute)
+        if (this.phase.workerState())
             this.memory.add(key, value);
         else
             this.memory.set(key, this.sideEffects.getReducer(key).apply(this.memory.get(key), value));
@@ -151,5 +150,34 @@ public final class MemoryTraversalSideEffects implements TraversalSideEffects {
     @Override
     public void mergeInto(final TraversalSideEffects sideEffects) {
         this.sideEffects.mergeInto(sideEffects);
+    }
+
+    public void storeSideEffectsInMemory() {
+        if (this.phase.workerState())
+            this.sideEffects.forEach(this.memory::add);
+        else
+            this.sideEffects.forEach(this.memory::set);
+    }
+
+    public static void setMemorySideEffects(final Traversal.Admin<?, ?> traversal, final Memory memory, final ProgramPhase phase) {
+        final TraversalSideEffects sideEffects = traversal.getSideEffects();
+        if (!(sideEffects instanceof MemoryTraversalSideEffects)) {
+            traversal.setSideEffects(new MemoryTraversalSideEffects(sideEffects));
+        }
+        final MemoryTraversalSideEffects memoryTraversalSideEffects = ((MemoryTraversalSideEffects) traversal.getSideEffects());
+        memoryTraversalSideEffects.memory = memory;
+        memoryTraversalSideEffects.phase = phase;
+    }
+
+    public static Set<MemoryComputeKey> getMemoryComputeKeys(final Traversal.Admin<?, ?> traversal) {
+        final Set<MemoryComputeKey> keys = new HashSet<>();
+        final TraversalSideEffects sideEffects =
+                traversal.getSideEffects() instanceof MemoryTraversalSideEffects ?
+                        ((MemoryTraversalSideEffects) traversal.getSideEffects()).getSideEffects() :
+                        traversal.getSideEffects();
+        sideEffects.keys().
+                stream().
+                forEach(key -> keys.add(MemoryComputeKey.of(key, sideEffects.getReducer(key), true, false)));
+        return keys;
     }
 }

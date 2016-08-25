@@ -15,7 +15,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ////
 
-image::apache-tinkerpop-logo.png[width=500]
+image::apache-tinkerpop-logo.png[width=500,link="http://tinkerpop.apache.org"]
+
+*x.y.z*
 
 Getting Started
 ---------------
@@ -51,13 +53,13 @@ NOTE: Are you unsure of what a vertex or edge is? That topic is covered in the <
 but please allow the tutorial to get you oriented with the Gremlin Console first, so that you have an understanding of
 the tool that will help you with your learning experience.
 
-link:https://www.apache.org/dyn/closer.lua/incubator/tinkerpop/x.y.z/apache-gremlin-console-x.y.z-bin.zip[Download the console],
+link:https://www.apache.org/dyn/closer.lua/tinkerpop/x.y.z/apache-tinkerpop-gremlin-console-x.y.z-bin.zip[Download the console],
 unpackage it and start it:
 
 [source,text]
 ----
-$ unzip apache-gremlin-console-x.y.z-bin.zip
-$ cd apache-gremlin-console-x.y.z-bin.zip
+$ unzip apache-tinkerpop-gremlin-console-x.y.z-bin.zip
+$ cd apache-tinkerpop-gremlin-console-x.y.z-bin.zip
 $ bin/gremlin.sh
 
          \,,,/
@@ -187,7 +189,7 @@ Creating a Graph
 
 As intuitive as it is to you, it is perhaps more intuitive to Gremlin himself, as vertices, edges and properties make
 up the very elements of his existence. It is indeed helpful to think of our friend, Gremlin, moving about a graph when
-developing traversals, as picturing his position as the link:http://tinkerpop.apache.org/docs/3.0.2-incubating/#_the_traverser[traverser]
+developing traversals, as picturing his position as the link:http://tinkerpop.apache.org/docs/x.y.z/reference/#_the_traverser[traverser]
 helps orient where you need him to go next. Let's use the two vertex, one edge graph we've been discussing above
 as an example. First, you need to create this graph:
 
@@ -532,9 +534,9 @@ containing a Gremlin script to be processed with results returned.
 
 [source,text]
 ----
-$ curl -L -O https://www.apache.org/dist/incubator/tinkerpop/x.y.z/apache-gremlin-server-x.y.z-bin.zip
-$ unzip apache-gremlin-server-x.y.z-bin.zip
-$ cd apache-gremlin-server-x.y.z-bin.zip
+$ curl -L -O https://www.apache.org/dist/tinkerpop/x.y.z/apache-tinkerpop-gremlin-server-x.y.z-bin.zip
+$ unzip apache-tinkerpop-gremlin-server-x.y.z-bin.zip
+$ cd apache-tinkerpop-gremlin-server-x.y.z-bin.zip
 $ bin/gremlin-server.sh conf/gremlin-server-modern.yaml
 [INFO] GremlinServer -
          \,,,/

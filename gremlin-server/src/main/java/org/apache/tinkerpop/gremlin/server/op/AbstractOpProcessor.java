@@ -109,7 +109,15 @@ public abstract class AbstractOpProcessor implements OpProcessor {
             // so iterating next() if the message is not written and flushed would bump the aggregate size beyond
             // the expected resultIterationBatchSize.  Total serialization time for the response remains in
             // effect so if the client is "slow" it may simply timeout.
-            if (aggregate.size() < resultIterationBatchSize) aggregate.add(itty.next());
+            //
+            // there is a need to check hasNext() on the iterator because if the channel is not writeable the
+            // previous pass through the while loop will have next()'d the iterator and if it is "done" then a
+            // NoSuchElementException will raise its head.
+            //
+            // this could be placed inside the isWriteable() portion of the if-then below but it seems better to
+            // allow iteration to continue into a batch if that is possible rather than just doing nothing at all
+            // while waiting for the client to catch up
+            if (aggregate.size() < resultIterationBatchSize && itty.hasNext()) aggregate.add(itty.next());
 
             // send back a page of results if batch size is met or if it's the end of the results being iterated.
             // also check writeability of the channel to prevent OOME for slow clients.
@@ -120,31 +128,43 @@ public abstract class AbstractOpProcessor implements OpProcessor {
                     // serialize here because in sessionless requests the serialization must occur in the same
                     // thread as the eval.  as eval occurs in the GremlinExecutor there's no way to get back to the
                     // thread that processed the eval of the script so, we have to push serialization down into that
-                    Frame frame;
+                    Frame frame = null;
                     try {
                         frame = makeFrame(ctx, msg, serializer, useBinary, aggregate, code);
                     } catch (Exception ex) {
+                        // a frame may use a Bytebuf which is a countable release - if it does not get written
+                        // downstream it needs to be released here
+                        if (frame != null) frame.tryRelease();
+
                         // exception is handled in makeFrame() - serialization error gets written back to driver
                         // at that point
-                        if (manageTransactions) attemptRollback(msg, context.getGraphManager(), settings.strictTransactionManagement);
+                        if (managedTransactionsForRequest) attemptRollback(msg, context.getGraphManager(), settings.strictTransactionManagement);
                         break;
                     }
 
-                    // only need to reset the aggregation list if there's more stuff to write
-                    if (itty.hasNext())
-                        aggregate = new ArrayList<>(resultIterationBatchSize);
-                    else {
-                        // iteration and serialization are both complete which means this finished successfully. note that
-                        // errors internal to script eval or timeout will rollback given GremlinServer's global configurations.
-                        // local errors will get rolledback below because the exceptions aren't thrown in those cases to be
-                        // caught by the GremlinExecutor for global rollback logic. this only needs to be committed if
-                        // there are no more items to iterate and serialization is complete
-                        if (managedTransactionsForRequest) attemptCommit(msg, context.getGraphManager(), settings.strictTransactionManagement);
+                    try {
+                        // only need to reset the aggregation list if there's more stuff to write
+                        if (itty.hasNext())
+                            aggregate = new ArrayList<>(resultIterationBatchSize);
+                        else {
+                            // iteration and serialization are both complete which means this finished successfully. note that
+                            // errors internal to script eval or timeout will rollback given GremlinServer's global configurations.
+                            // local errors will get rolledback below because the exceptions aren't thrown in those cases to be
+                            // caught by the GremlinExecutor for global rollback logic. this only needs to be committed if
+                            // there are no more items to iterate and serialization is complete
+                            if (managedTransactionsForRequest)
+                                attemptCommit(msg, context.getGraphManager(), settings.strictTransactionManagement);
 
-                        // exit the result iteration loop as there are no more results left.  using this external control
-                        // because of the above commit.  some graphs may open a new transaction on the call to
-                        // hasNext()
-                        hasMore = false;
+                            // exit the result iteration loop as there are no more results left.  using this external control
+                            // because of the above commit.  some graphs may open a new transaction on the call to
+                            // hasNext()
+                            hasMore = false;
+                        }
+                    } catch (Exception ex) {
+                        // a frame may use a Bytebuf which is a countable release - if it does not get written
+                        // downstream it needs to be released here
+                        if (frame != null) frame.tryRelease();
+                        throw ex;
                     }
 
                     // the flush is called after the commit has potentially occurred.  in this way, if a commit was
@@ -166,7 +186,7 @@ public abstract class AbstractOpProcessor implements OpProcessor {
             }
 
             stopWatch.split();
-            if (stopWatch.getSplitTime() > settings.serializedResponseTimeout) {
+            if (settings.serializedResponseTimeout > 0 && stopWatch.getSplitTime() > settings.serializedResponseTimeout) {
                 final String timeoutMsg = String.format("Serialization of the entire response exceeded the 'serializeResponseTimeout' setting %s",
                         warnOnce ? "[Gremlin Server paused writes to client as messages were not being consumed quickly enough]" : "");
                 throw new TimeoutException(timeoutMsg.trim());
@@ -208,12 +228,17 @@ public abstract class AbstractOpProcessor implements OpProcessor {
 
     protected static void attemptCommit(final RequestMessage msg, final GraphManager graphManager, final boolean strict) {
         if (strict) {
-            // assumes that validations will already have been performed in extending classes - they are performed
-            // in StandardOpProcessor when getting bindings right now
+            // validations should have already been performed in StandardOpProcessor, but a failure in bindings maker
+            // at the time of the eval might raise through here at which point the validation didn't yet happen. better
+            // to just check again
             final boolean hasRebindings = msg.getArgs().containsKey(Tokens.ARGS_REBINDINGS);
             final String rebindingOrAliasParameter = hasRebindings ? Tokens.ARGS_REBINDINGS : Tokens.ARGS_ALIASES;
-            final Map<String, String> aliases = (Map<String, String>) msg.getArgs().get(rebindingOrAliasParameter);
-            graphManager.commit(new HashSet<>(aliases.values()));
+            if (msg.getArgs().containsKey(rebindingOrAliasParameter)) {
+                final Map<String, String> aliases = (Map<String, String>) msg.getArgs().get(rebindingOrAliasParameter);
+                graphManager.commit(new HashSet<>(aliases.values()));
+            } else {
+                graphManager.commitAll();
+            }
         } else {
             graphManager.commitAll();
         }
@@ -221,12 +246,17 @@ public abstract class AbstractOpProcessor implements OpProcessor {
 
     protected static void attemptRollback(final RequestMessage msg, final GraphManager graphManager, final boolean strict) {
         if (strict) {
-            // assumes that validations will already have been performed in extending classes - they are performed
-            // in StandardOpProcessor when getting bindings right now
+            // validations should have already been performed in StandardOpProcessor, but a failure in bindings maker
+            // at the time of the eval might raise through here at which point the validation didn't yet happen. better
+            // to just check again
             final boolean hasRebindings = msg.getArgs().containsKey(Tokens.ARGS_REBINDINGS);
             final String rebindingOrAliasParameter = hasRebindings ? Tokens.ARGS_REBINDINGS : Tokens.ARGS_ALIASES;
-            final Map<String, String> aliases = (Map<String, String>) msg.getArgs().get(rebindingOrAliasParameter);
-            graphManager.rollback(new HashSet<>(aliases.values()));
+            if (msg.getArgs().containsKey(rebindingOrAliasParameter)) {
+                final Map<String, String> aliases = (Map<String, String>) msg.getArgs().get(rebindingOrAliasParameter);
+                graphManager.rollback(new HashSet<>(aliases.values()));
+            } else {
+                graphManager.rollbackAll();
+            }
         } else {
             graphManager.rollbackAll();
         }

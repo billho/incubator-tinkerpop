@@ -21,6 +21,7 @@ package org.apache.tinkerpop.gremlin.process;
 import org.apache.tinkerpop.gremlin.AbstractGremlinSuite;
 import org.apache.tinkerpop.gremlin.process.traversal.CoreTraversalTest;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalEngine;
+import org.apache.tinkerpop.gremlin.process.traversal.TraversalInterruptionTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.branch.BranchTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.branch.ChooseTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.branch.OptionalTest;
@@ -91,7 +92,7 @@ import org.junit.runners.model.RunnerBuilder;
 
 /**
  * The {@code ProcessStandardSuite} is a JUnit test runner that executes the Gremlin Test Suite over a
- * {@link Graph} implementation.  This test suite covers traversal operations and should be implemented by vendors
+ * {@link Graph} implementation.  This test suite covers traversal operations and should be implemented by providers
  * to validate that their implementations are compliant with the Gremlin language.
  * <p/>
  * For more information on the usage of this suite, please see {@link StructureStandardSuite}.
@@ -173,6 +174,7 @@ public class ProcessStandardSuite extends AbstractGremlinSuite {
 
             // compliance
             CoreTraversalTest.class,
+            TraversalInterruptionTest.class,
 
             // decorations
             ElementIdStrategyProcessTest.class,

@@ -38,6 +38,7 @@ import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -209,10 +210,8 @@ public final class StarGraph implements Graph, Serializable {
         });
 
         vertex.edges(Direction.OUT).forEachRemaining(edge -> {
-            if (!ElementHelper.areEqual(starVertex, edge.inVertex())) { // only do a self loop once
-                final Edge starEdge = starVertex.addOutEdge(edge.label(), starGraph.addVertex(T.id, edge.inVertex().id()), T.id, edge.id());
-                edge.properties().forEachRemaining(p -> starEdge.property(p.key(), p.value()));
-            }
+            final Edge starEdge = starVertex.addOutEdge(edge.label(), starGraph.addVertex(T.id, edge.inVertex().id()), T.id, edge.id());
+            edge.properties().forEachRemaining(p -> starEdge.property(p.key(), p.value()));
         });
         return starGraph;
     }
@@ -319,7 +318,20 @@ public final class StarGraph implements Graph, Serializable {
 
         @Override
         public Edge addEdge(final String label, final Vertex inVertex, final Object... keyValues) {
-            return this.addOutEdge(label, inVertex, keyValues);
+            final Edge edge = this.addOutEdge(label, inVertex, keyValues);
+            if (inVertex.equals(this)) {
+                if (ElementHelper.getIdValue(keyValues).isPresent()) {
+                    // reuse edge ID from method params
+                    this.addInEdge(label, this, keyValues);
+                } else {
+                    // copy edge ID that we just allocated with addOutEdge
+                    final Object[] keyValuesWithId = Arrays.copyOf(keyValues, keyValues.length + 2);
+                    keyValuesWithId[keyValuesWithId.length - 2] = T.id;
+                    keyValuesWithId[keyValuesWithId.length - 1] = edge.id();
+                    this.addInEdge(label, this, keyValuesWithId);
+                }
+            }
+            return edge;
         }
 
         @Override

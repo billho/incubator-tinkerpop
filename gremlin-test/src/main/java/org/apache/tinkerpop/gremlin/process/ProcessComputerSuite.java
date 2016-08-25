@@ -26,6 +26,7 @@ import org.apache.tinkerpop.gremlin.process.computer.bulkloading.BulkLoaderVerte
 import org.apache.tinkerpop.gremlin.process.computer.clustering.peerpressure.PeerPressureVertexProgramTest;
 import org.apache.tinkerpop.gremlin.process.computer.ranking.pagerank.PageRankVertexProgramTest;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalEngine;
+import org.apache.tinkerpop.gremlin.process.traversal.TraversalInterruptionComputerTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.branch.BranchTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.branch.ChooseTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.branch.OptionalTest;
@@ -95,7 +96,7 @@ import org.junit.runners.model.RunnerBuilder;
 /**
  * The {@code ProcessComputerSuite} is a JUnit test runner that executes the Gremlin Test Suite over a
  * {@link Graph} implementation.  This test suite covers traversal operations around {@link GraphComputer} and should
- * be implemented by vendors to validate that their implementations are compliant with that Gremlin language.
+ * be implemented by providers to validate that their implementations are compliant with that Gremlin language.
  * Implementations that use this test suite should return {@code true} for
  * {@link org.apache.tinkerpop.gremlin.structure.Graph.Features.GraphFeatures#supportsComputer()}.
  * <p/>
@@ -181,6 +182,9 @@ public class ProcessComputerSuite extends AbstractGremlinSuite {
             StoreTest.Traversals.class,
             SubgraphTest.Traversals.class,
             TreeTest.Traversals.class,
+
+            // compliance
+            TraversalInterruptionComputerTest.class,
 
             // algorithms
             PageRankVertexProgramTest.class,

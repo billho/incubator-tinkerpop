@@ -20,7 +20,7 @@ limitations under the License.
     <parent>
         <groupId>org.apache.tinkerpop</groupId>
         <artifactId>tinkerpop</artifactId>
-        <version>3.2.0-SNAPSHOT</version>
+        <version>3.2.2-SNAPSHOT</version>
     </parent>
     <artifactId>gremlin-core</artifactId>
     <name>Apache TinkerPop :: Gremlin Core</name>
@@ -64,7 +64,7 @@ limitations under the License.
         <!-- LOGGING -->
         <dependency>
             <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-log4j12</artifactId>
+            <artifactId>slf4j-api</artifactId>
             <version>${slf4j.version}</version>
         </dependency>
         <dependency>
@@ -77,6 +77,12 @@ limitations under the License.
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
             <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-log4j12</artifactId>
+            <version>${slf4j.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
