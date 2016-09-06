@@ -21,12 +21,12 @@ limitations under the License.
     <parent>
         <groupId>org.apache.tinkerpop</groupId>
         <artifactId>tinkerpop</artifactId>
-        <version>3.2.2-SNAPSHOT</version>
+        <version>3.2.2</version>
     </parent>
     <artifactId>gremlin-driver</artifactId>
     <name>Apache TinkerPop :: Gremlin Driver</name>
     <properties>
-        <netty.version>4.0.34.Final</netty.version>
+        <netty.version>4.0.40.Final</netty.version>
     </properties>
     <dependencies>
         <dependency>

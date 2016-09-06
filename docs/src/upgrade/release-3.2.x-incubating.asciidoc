@@ -25,7 +25,7 @@ image::https://raw.githubusercontent.com/apache/tinkerpop/master/docs/static/ima
 TinkerPop 3.2.2
 ---------------
 
-*Release Date: NOT OFFICIALLY RELEASED YET*
+*Release Date: September 6, 2016*
 
 Please see the link:https://github.com/apache/tinkerpop/blob/3.2.2/CHANGELOG.asciidoc#release-3-2-2[changelog] for a complete list of all the modifications that are part of this release.
 
@@ -38,7 +38,7 @@ GraphSON 2.0
 GraphSON 2.0 has been introduced to improve and normalize the format of types embedded in GraphSON.
 
 See: link:https://issues.apache.org/jira/browse/TINKERPOP-1274[TINKERPOP-1274],
-link:http://tinkerpop.apache.org/docs/3.2.1-incubating/reference/#graphson-2.0-types[Reference Documentation -
+link:http://tinkerpop.apache.org/docs/3.2.2/reference/#graphson-2-0-types[Reference Documentation -
 GraphSON 2.0].
 
 Log4j Dependencies
@@ -62,6 +62,37 @@ contain the thread pool settings as all are now driven by sensible defaults. Obv
 and overridden as needed.
 
 See: https://issues.apache.org/jira/browse/TINKERPOP-1373[TINKERPOP-1373]
+
+New Console Features
+^^^^^^^^^^^^^^^^^^^^
+
+The Gremlin Console can now have its text colorized. For example, you can set the color of the Gremlin ascii art to
+the more natural color of green by using the `:set` command:
+
+[source,text]
+gremlin> :set gremlin.color green
+
+It is also possible to colorize results, like vertices, edges, and other common returns. Please see the
+link:http://tinkerpop.apache.org/docs/3.2.2/reference/#console-preferences[reference documentation] for more details
+on all the settings.
+
+The console also now includes better multi-line support:
+
+[source,text]
+----
+gremlin> g.V().out().
+......1>       has('name','josh').
+......2>       out('created')
+==>v[5]
+==>v[3]
+----
+
+This is a nice feature in that it can help you understand if a line is incomplete and unevaluated.
+
+See: link:https://issues.apache.org/jira/browse/TINKERPOP-1285[TINKERPOP-1285],
+link:https://issues.apache.org/jira/browse/TINKERPOP-1285[TINKERPOP-1037],
+link:http://tinkerpop.apache.org/docs/3.2.2/reference/#console-preferences[Reference Documentation -
+Console Preferences]
 
 Upgrading for Providers
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -92,8 +123,8 @@ dependending on `gremlin-test` (or `gremlin-groovy-test`) will need to explicitl
 
 See: link:https://issues.apache.org/jira/browse/TINKERPOP-1151[TINKERPOP-1151]
 
-Graph Drivers Providers
-^^^^^^^^^^^^^^^^^^^^^^
+Drivers Providers
+^^^^^^^^^^^^^^^^^
 
 GraphSON 2.0
 ++++++++++++
@@ -104,8 +135,17 @@ languages can then implement their own mapping of the GraphSON's language agnost
 to the appropriate representation for the driver's language.
 
 See: link:https://issues.apache.org/jira/browse/TINKERPOP-1274[TINKERPOP-1274],
-link:http://tinkerpop.apache.org/docs/3.2.1-incubating/reference/#graphson-2.0-types[Reference Documentation -
+link:http://tinkerpop.apache.org/docs/3.2.2/reference/#graphson-2.0-types[Reference Documentation -
 GraphSON 2.0].
+
+Traversal Serialization
++++++++++++++++++++++++
+
+There was an "internal" serialization format in place for `Traversal` which allowed one to be submitted to Gremlin
+Server directly over `RemoteGraph`. That format has been removed completely and is wholly replaced by the non-JVM
+specific approach of serializing `Bytecode`.
+
+See: link:https://issues.apache.org/jira/browse/TINKERPOP-1392[TINKERPOP-1392]
 
 TinkerPop 3.2.1
 ---------------

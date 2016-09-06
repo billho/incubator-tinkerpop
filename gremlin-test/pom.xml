@@ -21,7 +21,7 @@ limitations under the License.
     <parent>
         <groupId>org.apache.tinkerpop</groupId>
         <artifactId>tinkerpop</artifactId>
-        <version>3.2.2-SNAPSHOT</version>
+        <version>3.2.2</version>
     </parent>
     <artifactId>gremlin-test</artifactId>
     <name>Apache TinkerPop :: Gremlin Test</name>
@@ -78,7 +78,7 @@ limitations under the License.
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-log4j12</artifactId>
             <version>${slf4j.version}</version>
-            <scope>optional</scope>
+            <optional>true</optional>
         </dependency>
     </dependencies>
     <build>

@@ -27,7 +27,10 @@ if [ "${USERNAME}" == "" ]; then
   exit 1
 fi
 
-SVN_CMD="svn --no-auth-cache --username=${USERNAME}"
+read -s -p "Password for SVN user ${USERNAME}: " PASSWORD
+echo
+
+SVN_CMD="svn --no-auth-cache --username=${USERNAME} --password=${PASSWORD}"
 VERSION=$(cat pom.xml | grep -A1 '<artifactId>tinkerpop</artifactId>' | grep '<version>' | awk -F '>' '{print $2}' | awk -F '<' '{print $1}')
 
 rm -rf target/svn
@@ -58,18 +61,6 @@ pushd target/svn
 rm "docs/${VERSION}/images/tinkerpop3.graffle"
 ${SVN_CMD} update --depth empty "docs/${VERSION}"
 ${SVN_CMD} update --depth empty "javadocs/${VERSION}"
-
-for dir in "docs" "javadocs"
-do
-  CURRENT=$((${SVN_CMD} list "${dir}" ; ls "${dir}") | tr -d '/' | grep -v SNAPSHOT | grep -Fv current | sort -rV | head -n1)
-
-  ${SVN_CMD} update --depth empty "${dir}/current"
-  ${SVN_CMD} rm "${dir}/current"
-
-  ${SVN_CMD} update --depth empty "${dir}/${CURRENT}"
-  ln -s "${CURRENT}" "${dir}/current"
-  ${SVN_CMD} update --depth empty "${dir}/current"
-done
 
 ${SVN_CMD} add * --force
 ${SVN_CMD} commit -m "Deploy docs for TinkerPop ${VERSION}"
